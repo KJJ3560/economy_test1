@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +29,29 @@ Z_WINDOW = 20          # 이동 z-score 윈도우 (거래일)
 Z_FLAG = 1.5           # 이상 신호로 표시할 z-score 절대값 임계치
 VOL_WINDOW = 20        # 변동성 윈도우
 KST = "Asia/Seoul"
+
+
+def check_aistudio_api_key() -> tuple[bool, str]:
+    """AISTUDIO_API_KEY 환경변수 확인 및 유효성 검증.
+
+    Returns:
+        (is_valid, message) - is_valid: 키 유효성 여부, message: 상태 메시지
+    """
+    api_key = os.getenv("AISTUDIO_API_KEY", "").strip()
+
+    if not api_key:
+        return False, "[warn] AISTUDIO_API_KEY가 설정되지 않았습니다."
+
+    if len(api_key) < 20:
+        return False, f"[warn] AISTUDIO_API_KEY가 너무 짧습니다 (길이: {len(api_key)})"
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        _ = client.models.list()
+        return True, f"[ok] AISTUDIO_API_KEY 유효함 (길이: {len(api_key)})"
+    except Exception as e:
+        return False, f"[error] AISTUDIO_API_KEY 검증 실패: {e}"
 
 
 def fetch_daily(start: str, csv: str | None) -> tuple[pd.DataFrame, str]:
@@ -210,7 +234,13 @@ def main() -> None:
     p.add_argument("--start", default="2023-01-01")
     p.add_argument("--csv", help="오프라인 일봉 CSV (Date,Close,...)")
     p.add_argument("--out", default="reports")
+    p.add_argument("--check-api-key", action="store_true", help="AISTUDIO_API_KEY 검증만 수행")
     args = p.parse_args()
+
+    if args.check_api_key:
+        is_valid, message = check_aistudio_api_key()
+        print(message)
+        sys.exit(0 if is_valid else 1)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
