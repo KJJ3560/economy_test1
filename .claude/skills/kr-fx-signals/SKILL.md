@@ -79,6 +79,39 @@ python analysis/fx_analysis.py --csv path/to/usdkrw.csv     # 오프라인 폴�
 새 수집기(smbs 스크레이퍼, ECOS 수집기 등)를 만들 때는 이 스크립트의
 `fetch_daily()` 폴백 패턴과 리포트 형식을 재사용한다.
 
+## 4-1. 외국인 수급 × 환율 결합 (pykrx / KOSIS)
+
+환율 신호만으로는 "왜 원화가 강한가"를 구분하지 못한다. **외국인 주식 수급**과
+**거시 통계**를 결합해 대량 환전 신호를 증권 자금 유입과 분리한다.
+
+### 소스 (둘 다 MCP 서버 존재)
+- **pykrx-mcp** (github.com/sharebook-kr/pykrx-mcp) — KRX 마이크로, 키 불필요.
+  핵심 도구: `get_market_net_purchases_of_equities`(투자자별 순매수),
+  `get_exhaustion_rates_of_foreign_investment`(외국인 소진율),
+  `get_market_trading_value_by_investor`, 공매도(`get_shorting_*`), 지수 OHLCV.
+  라이브러리로도 직접 호출 가능: `pip install pykrx`.
+- **korea-stats-mcp** (github.com/Dayoooun/korea-stats-mcp) — KOSIS 매크로, 키 내장.
+  원격 서버(`https://korea-stats-mcp-yxup.vercel.app/mcp`)라 서버가 대신 조회.
+  경상수지·외환보유액 등 월/분기 통계로 환전 수요의 구조적 배경 확인.
+
+### 교차 규칙 (핵심)
+| 외국인 주식 | 원화 방향 + 거래량 | 해석 |
+|---|---|---|
+| 순매도 | 원화 강세 + 거래량 급증 | **★ 대량 환전 신호** — 증시 자금 이탈과 무관한 별도 원화 매수 수요 |
+| 순매수 | 원화 강세 | 단순 증시 유입으로 설명됨 (환전 신호 약함) |
+| 순매도 | 원화 약세 | 자금 이탈 + 원화 약세, 정합적 (특이신호 아님) |
+
+즉 **외국인 주식 순매도인데 원화가 강세**인 괴리(divergence)가 나타날 때가
+가장 강한 신호다. 두 소스가 있어야만 이 괴리를 판별할 수 있다.
+
+### 결합 구현 방침
+- 권장: MCP 체이닝 대신 **단일 오케스트레이터**(collectors/krx.py + kosis.py + fx.py
+  → SQLite → signals.py)로 묶는다. 견고하고 백테스트가 쉽다.
+- 이 세션(원격)은 **KRX 도메인 403 차단**이라 pykrx 실행 불가 → 로컬/GitHub Actions
+  전제. korea-stats는 원격 Vercel 서버라 이 세션에서도 붙을 수 있음.
+- Claude Code에서 MCP를 붙일 땐 `claude_desktop_config.json`이 아니라 프로젝트
+  `.mcp.json` 또는 `claude mcp add`를 쓴다 (Claude Desktop 설정 파일은 무관).
+
 ## 5. 엔드포인트 참고
 
 - 수출입은행: `https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey={KEY}&searchdate=YYYYMMDD&data=AP01`
