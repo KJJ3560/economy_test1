@@ -1,0 +1,4 @@
+reports/
+*.sqlite
+__pycache__/
+*.pyc
